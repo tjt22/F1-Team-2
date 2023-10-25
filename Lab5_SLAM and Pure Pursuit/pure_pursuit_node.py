@@ -8,6 +8,7 @@ from sensor_msgs.msg import LaserScan
 from ackermann_msgs.msg import AckermannDriveStamped, AckermannDrive
 
 # TODO CHECK: include needed ROS msg type headers and libraries
+# make sure these are in your package and cmake files
 import tf2_ros
 import tf2_geometry_msgs
 import math
@@ -68,15 +69,18 @@ class PurePursuit(Node):
         
         # get steering angle based on arc formula
         angle = self.steerToWaypoint(x_car, y_car, x_waypoint_tf, y_waypoint_tf)
-        max_angle = 60
 
+        # limiting angle. change this value based on sim performance
+        max_angle = 60
         if angle >= np.radians(max_angle):
             angle = np.radians(max_angle)
             
         print(angle)
+        # show's goal point on Rviz
         publish_point_marker(x_waypoint_tf,y_waypoint_tf)
+        
         #shut up and drive https://www.youtube.com/watch?v=up7pvPqNkuU
-        #create drive message
+        #drive and steer messages
         angle_msg = AckermannDriveStamped()
         angle_msg.header.stamp = self.get_clock().now().to_msg()
         angle_msg.drive.steering_angle = angle
@@ -136,8 +140,8 @@ class PurePursuit(Node):
         marker_msg.scale.y = 0.2
         marker_msg.scale.z = 0.2
         marker_msg.color.a = 1.0  # Alpha (transparency)
-        marker_msg.color.r = 0.0  # Red color
-        marker_msg.color.g = 255.0
+        marker_msg.color.r = 0.0  
+        marker_msg.color.g = 255.0  # Green marker
         marker_msg.color.b = 0.0
 
         # Publish the Marker message
