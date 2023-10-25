@@ -10,6 +10,8 @@ from ackermann_msgs.msg import AckermannDriveStamped, AckermannDrive
 # TODO CHECK: include needed ROS msg type headers and libraries
 # make sure these are in your package and cmake files
 import tf2_ros
+from tf2_ros.transform_listener import TransformListener
+from tf2_ros.buffer import Buffer
 import tf2_geometry_msgs
 import math
 from geometry_msgs.msg import Pose, PoseStamped
@@ -32,12 +34,13 @@ class PurePursuit(Node):
         self.publisher = self.create_publisher(Marker, 'visualization_marker', 10)
 
         #init buffer and listener for make pose transforms on waypoint
-        self.tf_buffer = tf2_ros.Buffer(rclpy.Duration(100.0))
-        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer,self)
 
         #self.subscription = self.node.create_subscription(MarkerArray, 'visualization_marker_array',self.viz_callback,10)
         FILEPATH = "ENTER_FILEPATH_HERE"
-        self.waypoints = np.loadtxt(FILEPATH,delimiter=",",dtype={'names': ('x','y','z')},usecols=(0,1,2))
+        self.waypoints = np.loadtxt(FILEPATH, delimiter=",", dtype={'names': ('x', 'y', 'z'), 'formats': ('f8', 'f8', 'f8')}, usecols=(0, 1, 2))
+        print(self.waypoints)
 
     def odom_callback(self, msg):
         x_car = msg.pose.pose.position.x
@@ -107,11 +110,10 @@ class PurePursuit(Node):
         goal_waypoint_mapFrame.pose   = goalWaypointPose
 
         #do the transform
-        transform = self.tf_buffer.lookup_transform('ego_racecar/base_link',
-                                        'map',
-                                        msg.pose.header.stamp,
-                                        rclpy.Duration(1.0)
-                                        )
+       transform = self.tf_buffer.lookup_transform('ego_racecar/base_link',
+                                                    'map',
+                                                    rclpy.time.Time()
+                                                    )
         goal_waypoint_tfCar = tf2_geometry_msgs.do_transform_pose(goal_waypoint_mapFrame, transform)
         return goal_waypoint_tfCar
 
