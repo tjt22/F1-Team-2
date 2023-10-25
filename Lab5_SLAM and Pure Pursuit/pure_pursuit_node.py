@@ -45,6 +45,31 @@ class PurePursuit(Node):
         qz_car = msg.pose.pose.orientation.z
         qw_car = msg.pose.pose.orientation.w
 
+        # Compute the squared differences
+        deltaX = self.waypoints['x'] - x_car
+        deltaY = self.waypoints['y'] - y_car
+        distances = np.sqrt(deltaX**2 + deltaY**2)
+
+        # Boolean array for points on and outside of the lookahead
+        outside_L = distances >= self.LOOKAHEAD
+
+        # Find point with smallest distance from car
+        filtered_distances = distances[outside_L] #filter distances
+        min_index_outside_L = np.argmin(filtered_distances) #index of smalled distance in filtered
+        filtered_index_array = np.arange(distances.size)[outside_L] #create array of indicies {0, 1, 2, 3..} and filter based on outside_L
+        goal_waypoint_index = filtered_index_array[min_index_outside_L]
+        
+        #with index obtain the goal waypoint
+        goal_waypoint = (self.waypoints['x'][goal_waypoint_index], self.waypoints['y'][goal_waypoint_index])
+        #TODO: call our transformation function
+            # right now it's pose_callback, but maybe it should be a function like
+            # transformGoal(goal_waypoint, msg):
+            #   turn the  goal_waypoint into a PoseStamped message
+            #   do the transform (with the buffer, lookup, etc)
+ 
+
+
+
     def viz_callback(self, msg):
         waypoints = msg.marker_array
 
