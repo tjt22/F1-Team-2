@@ -11,7 +11,7 @@ from ackermann_msgs.msg import AckermannDriveStamped, AckermannDrive
 import tf2_ros
 import tf2_geometry_msgs
 import math
-from geometry_msgs.msg import Odometry
+from geometry_msgs.msg import Odometry, Pose, PoseStamped
 
 
 class PurePursuit(Node):
@@ -22,20 +22,23 @@ class PurePursuit(Node):
     def __init__(self):
         super().__init__('pure_pursuit_node')
         # TODO: create ROS subscribers and publishers
-
         self.LOOKAHEAD = 1.5 # meters
         self.velocity = 1.5 # m/s
         self.msg.velocity = 1.5
-        tf_buffer = tf2_rclpy.Buffer(rclpy.Duration(100.0))
-        tf_listener = tf2_rclpy.TransformListener(self.tf_buffer)
         self.subscription = self.node.create_subscription(
             Odometry,
             'ego_racecar/odom',  # Replace 'odom' with the actual topic name
             self.odom_callback,
             10
         )
-        self.subscription = self.node.create_subscription(MarkerArray, 'visualization_marker_array',self.viz_callback,10)
-        self.waypoints = np.loadtxt('filepath',delimiter=",",dtype={'names': ('x','y','z')},usecols=(0,1,2))
+
+        #init buffer and listener for make pose transforms on waypoint
+        self.tf_buffer = tf2_ros.Buffer(rclpy.Duration(100.0))
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
+
+        #self.subscription = self.node.create_subscription(MarkerArray, 'visualization_marker_array',self.viz_callback,10)
+        FILEPATH = "ENTER_FILEPATH_HERE"
+        self.waypoints = np.loadtxt(FILEPATH,delimiter=",",dtype={'names': ('x','y','z')},usecols=(0,1,2))
 
     def odom_callback(self, msg):
         x_car = msg.pose.pose.position.x
@@ -61,34 +64,51 @@ class PurePursuit(Node):
         
         #with index obtain the goal waypoint
         goal_waypoint = (self.waypoints['x'][goal_waypoint_index], self.waypoints['y'][goal_waypoint_index])
-        #TODO: call our transformation function
-            # right now it's pose_callback, but maybe it should be a function like
-            # transformGoal(goal_waypoint, msg):
-            #   turn the  goal_waypoint into a PoseStamped message
-            #   do the transform (with the buffer, lookup, etc)
+        goal_waypoint_tfCar = self.waypointTransform(goal_waypoint, msg)
  
+    def waypointTransform(self, goal_waypoint, msg):
+        #convert our goal_waypoint into a PoseStamped messaeg
+        goalWaypointPose = Pose()
+        goalWaypointPose.position.x  = goal_waypoint[0]
+        goalWaypointPose.position.y = goal_waypoint[1]
+        goalWaypointPose.position.z = 0
+        goalWaypointPose.orientation.x = 0
+        goalWaypointPose.orientation.y = 0
+        goalWaypointPose.orientation.z = 0
 
+        goal_waypoint_mapFrame = PoseStamped()
+        goal_waypoint_mapFrame.header = msg.pose.header
+        goal_waypoint_mapFrame.pose   = goalWaypointPose
+
+        #do the transform
+        transform = self.tf_buffer.lookup_transform('ego_racecar/base_link',
+                                        'map',
+                                        msg.pose.header.stamp,
+                                        rclpy.Duration(1.0)
+                                        )
+        goal_waypoint_tfCar = tf2_geometry_msgs.do_transform_pose(goal_waypoint_mapFrame, transform)
+        return goal_waypoint_tfCar
 
 
     def viz_callback(self, msg):
         waypoints = msg.marker_array
 
     def pose_callback(self, msg):
-        pass
-        # TODO: find the current waypoint to track using methods mentioned in lecture
-        # loop through points in
-        deltaX = self.waypoints['x'] - x_car
-        deltaY = self.waypoints['Y'] - y_car
+        # pass
+        # # TODO: find the current waypoint to track using methods mentioned in lecture
+        # # loop through points in
+        # deltaX = self.waypoints['x'] - x_car
+        # deltaY = self.waypoints['Y'] - y_car
 
 
-        # TODO: transform goal point to vehicle frame of reference
-        quaternion_car = (qx_car,qy_car,qz_car,qw_car)
-        transform = tf_buffer.lookup_transform('ego_racecar/base_link',
-                                               'map',
-                                               msg.pose.header.stamp,
-                                               rclpy.Duration(1.0)
-                                               )
-        pose_transformed = tf2_geometry_msgs.do_transform_pose(#, transform)
+        # # TODO: transform goal point to vehicle frame of reference
+        # quaternion_car = (qx_car,qy_car,qz_car,qw_car)
+        # transform = tf_buffer.lookup_transform('ego_racecar/base_link',
+        #                                        'map',
+        #                                        msg.pose.header.stamp,
+        #                                        rclpy.Duration(1.0)
+        #                                        )
+        # pose_transformed = tf2_geometry_msgs.do_transform_pose(#, transform)
 
         # TODO: calculate curvature/steering angle
         X = x_goal - x_car
