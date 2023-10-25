@@ -62,10 +62,18 @@ class PurePursuit(Node):
         filtered_index_array = np.arange(distances.size)[outside_L] #create array of indicies {0, 1, 2, 3..} and filter based on outside_L
         goal_waypoint_index = filtered_index_array[min_index_outside_L]
         
-        #with index obtain the goal waypoint
+        # with index obtain the goal waypoint
         goal_waypoint = (self.waypoints['x'][goal_waypoint_index], self.waypoints['y'][goal_waypoint_index])
         goal_waypoint_tfCar = self.waypointTransform(goal_waypoint, msg)
- 
+        x_waypoint_tf = goal_waypoint_tfCar.pose.position.x
+        y_waypoint_tf = goal_waypoint_tfCar.pose.position.y
+        
+        # get steering angle based on arc formula
+        angle = self.steerToWaypoint(x_car, y_car, x_waypoint_tf, y_waypoint_tf)
+
+        #shut up and drive https://www.youtube.com/watch?v=up7pvPqNkuU
+        #create drive message
+         
     def waypointTransform(self, goal_waypoint, msg):
         #convert our goal_waypoint into a PoseStamped messaeg
         goalWaypointPose = Pose()
@@ -90,34 +98,12 @@ class PurePursuit(Node):
         return goal_waypoint_tfCar
 
 
-    def viz_callback(self, msg):
-        waypoints = msg.marker_array
-
-    def pose_callback(self, msg):
-        # pass
-        # # TODO: find the current waypoint to track using methods mentioned in lecture
-        # # loop through points in
-        # deltaX = self.waypoints['x'] - x_car
-        # deltaY = self.waypoints['Y'] - y_car
-
-
-        # # TODO: transform goal point to vehicle frame of reference
-        # quaternion_car = (qx_car,qy_car,qz_car,qw_car)
-        # transform = tf_buffer.lookup_transform('ego_racecar/base_link',
-        #                                        'map',
-        #                                        msg.pose.header.stamp,
-        #                                        rclpy.Duration(1.0)
-        #                                        )
-        # pose_transformed = tf2_geometry_msgs.do_transform_pose(#, transform)
-
-        # TODO: calculate curvature/steering angle
+    def steerToWaypoint(self, x_car, y_car, x_goal, y_goal):
         X = x_goal - x_car
         Y = y_goal - y_car
         dist_euc = math.sqrt(X**2+Y**2)
-        L = 200
-        steering_angle = (2*abs(Y))/(L**2)
-
-        # TODO: publish drive message, don't forget to limit the steering angle.
+        steering_angle = (2*abs(Y))/(dist_euc**2)
+        return steering_angle
 
 
 def main(args=None):
@@ -132,4 +118,3 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
-'''
