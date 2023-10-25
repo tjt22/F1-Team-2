@@ -11,7 +11,9 @@ from ackermann_msgs.msg import AckermannDriveStamped, AckermannDrive
 import tf2_ros
 import tf2_geometry_msgs
 import math
-from geometry_msgs.msg import Odometry, Pose, PoseStamped
+from geometry_msgs.msg import Pose, PoseStamped
+from nav_msgs.msg import Odometry
+from visualization_msgs.msg import Marker
 
 
 class PurePursuit(Node):
@@ -24,8 +26,9 @@ class PurePursuit(Node):
         # TODO: create ROS subscribers and publishers
         self.LOOKAHEAD = 1.5 # meters
         self.velocity = 0.5 # m/s
-        self.subscription = self.node.create_subscription(Odometry,'ego_racecar/odom',self.odom_callback,10)
-        self.Ackermann_publisher = self.create_publisher(AckermannDriveStamped, drive_topic, 10)
+        self.subscription = self.create_subscription(Odometry, 'ego_racecar/odom', self.odom_callback, 10)
+        self.Ackermann_publisher = self.create_publisher(AckermannDriveStamped, '/drive', 10)
+        self.publisher = self.create_publisher(Marker, 'visualization_marker', 10)
 
         #init buffer and listener for make pose transforms on waypoint
         self.tf_buffer = tf2_ros.Buffer(rclpy.Duration(100.0))
@@ -69,6 +72,9 @@ class PurePursuit(Node):
 
         if angle >= np.radians(max_angle):
             angle = np.radians(max_angle)
+            
+        print(angle)
+        publish_point_marker(x_waypoint_tf,y_waypoint_tf)
         #shut up and drive https://www.youtube.com/watch?v=up7pvPqNkuU
         #create drive message
         angle_msg = AckermannDriveStamped()
@@ -112,6 +118,31 @@ class PurePursuit(Node):
         dist_euc = math.sqrt(X**2+Y**2)
         steering_angle = (2*abs(Y))/(dist_euc**2)
         return steering_angle
+        
+    def publish_point_marker(x, y, frame_id='map'):
+
+        # Create a Marker message
+        marker_msg = Marker()
+        marker_msg.header.frame_id = frame_id  # Set the frame ID (default: base_link)
+        marker_msg.header.stamp = node.get_clock().now().to_msg()
+        marker_msg.ns = 'points'
+        marker_msg.id = 0
+        marker_msg.type = Marker.SPHERE
+        marker_msg.action = Marker.ADD
+        marker_msg.pose.position.x = x  # X-coordinate of the point
+        marker_msg.pose.position.y = y  # Y-coordinate of the point
+        marker_msg.pose.position.z = 0.0  # Z-coordinate of the point
+        marker_msg.scale.x = 0.2  # Scale of the marker (adjust as needed)
+        marker_msg.scale.y = 0.2
+        marker_msg.scale.z = 0.2
+        marker_msg.color.a = 1.0  # Alpha (transparency)
+        marker_msg.color.r = 0.0  # Red color
+        marker_msg.color.g = 255.0
+        marker_msg.color.b = 0.0
+
+        # Publish the Marker message
+        publisher.publish(marker_msg)
+        node.get_logger().info('Marker published')
 
 
 def main(args=None):
