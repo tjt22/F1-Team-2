@@ -23,14 +23,9 @@ class PurePursuit(Node):
         super().__init__('pure_pursuit_node')
         # TODO: create ROS subscribers and publishers
         self.LOOKAHEAD = 1.5 # meters
-        self.velocity = 1.5 # m/s
-        self.msg.velocity = 1.5
-        self.subscription = self.node.create_subscription(
-            Odometry,
-            'ego_racecar/odom',  # Replace 'odom' with the actual topic name
-            self.odom_callback,
-            10
-        )
+        self.velocity = 0.5 # m/s
+        self.subscription = self.node.create_subscription(Odometry,'ego_racecar/odom',self.odom_callback,10)
+        self.Ackermann_publisher = self.create_publisher(AckermannDriveStamped, drive_topic, 10)
 
         #init buffer and listener for make pose transforms on waypoint
         self.tf_buffer = tf2_ros.Buffer(rclpy.Duration(100.0))
@@ -70,9 +65,22 @@ class PurePursuit(Node):
         
         # get steering angle based on arc formula
         angle = self.steerToWaypoint(x_car, y_car, x_waypoint_tf, y_waypoint_tf)
+        max_angle = 60
 
+        if angle >= np.radians(max_angle):
+            angle = np.radians(max_angle)
         #shut up and drive https://www.youtube.com/watch?v=up7pvPqNkuU
         #create drive message
+        angle_msg = AckermannDriveStamped()
+        angle_msg.header.stamp = self.get_clock().now().to_msg()
+        angle_msg.drive.steering_angle = angle
+        self.Ackermann_publisher.publish(angle_msg)
+
+        drive_msg = AckermannDriveStamped()
+        drive_msg.header.stamp = self.get_clock().now().to_msg()
+        drive_msg.drive.speed = self.velocity
+        self.Ackermann_publisher.publish(drive_msg)
+        
          
     def waypointTransform(self, goal_waypoint, msg):
         #convert our goal_waypoint into a PoseStamped messaeg
