@@ -1,23 +1,21 @@
 #!/usr/bin/env python3
-
 import rclpy
 from rclpy.node import Node
 
 import numpy as np
 from sensor_msgs.msg import LaserScan
 from ackermann_msgs.msg import AckermannDriveStamped, AckermannDrive
-
 # TODO CHECK: include needed ROS msg type headers and libraries
-# make sure these are in your package and cmake files
-import tf2_ros
-from tf2_ros.transform_listener import TransformListener
-from tf2_ros.buffer import Buffer
-import tf2_geometry_msgs
-import math
-from geometry_msgs.msg import Pose, PoseStamped
 from nav_msgs.msg import Odometry
+import tf2_ros
+import tf2_geometry_msgs
+from tf2_ros.buffer import Buffer
+from tf2_ros.transform_listener import TransformListener
+from tf2_ros import TransformException
+from geometry_msgs.msg import PointStamped
+from geometry_msgs.msg import Pose, PoseStamped
 from visualization_msgs.msg import Marker
-
+import math
 
 class PurePursuit(Node):
     """ 
@@ -27,33 +25,58 @@ class PurePursuit(Node):
     def __init__(self):
         super().__init__('pure_pursuit_node')
         # TODO: create ROS subscribers and publishers
-        self.LOOKAHEAD = 1.5 # meters
-        self.velocity = 0.5 # m/s
-        self.subscription = self.create_subscription(Odometry, 'ego_racecar/odom', self.odom_callback, 10)
-        self.Ackermann_publisher = self.create_publisher(AckermannDriveStamped, '/drive', 10)
-        self.publisher = self.create_publisher(Marker, 'visualization_marker', 10)
 
+        self.LOOKAHEAD = 0.8
+        self.velocity = 1.0
+        self.constant = 0.8
+        self.waypoints = np.array(self.read_ground_truth_points())
+
+        drive_topic = '/drive'
+        odometry_topic = '/ego_racecar/odom'
+
+        # Odometry Subscriber
+        self.odometry_subscription = self.create_subscription(
+            Odometry, 
+            odometry_topic,
+            self.pose_callback, 
+            10)
+        self.odometry_subscription  # prevent unused variable warning
+
+        self.publisher_ = self.create_publisher(AckermannDriveStamped, drive_topic, 10)
+        
+        self.marker_publisher = self.create_publisher(Marker, 'visualization_marker', 10)
         #init buffer and listener for make pose transforms on waypoint
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer,self)
 
-        #self.subscription = self.node.create_subscription(MarkerArray, 'visualization_marker_array',self.viz_callback,10)
-        FILEPATH = "ENTER_FILEPATH_HERE"
-        self.waypoints = np.loadtxt(FILEPATH, delimiter=",", dtype={'names': ('x', 'y', 'z'), 'formats': ('f8', 'f8', 'f8')}, usecols=(0, 1, 2))
-        print(self.waypoints)
 
-    def odom_callback(self, msg):
-        x_car = msg.pose.pose.position.x
-        y_car = msg.pose.pose.position.y
-        qx_car = msg.pose.pose.orientation.x
-        qy_car = msg.pose.pose.orientation.y
-        qz_car = msg.pose.pose.orientation.z
-        qw_car = msg.pose.pose.orientation.w
+    def read_ground_truth_points(self):
+        path = "src/pure_pursuit/resource/"
+        fname = "reference_waypoints"
+
+        waypoints = []
+        with open(path + fname + '.csv', 'r') as file:
+            lines = file.readlines()
+            for line in lines:
+                data = line.strip().split(',')
+                waypoints.append([float(val) for val in data])
+        return waypoints
+
+
+    def pose_callback(self, pose_msg):
+        # TODO: find the current waypoint to track using methods mentioned in lecture
+
+        x_car = pose_msg.pose.pose.position.x
+        y_car = pose_msg.pose.pose.position.y
 
         # Compute the squared differences
-        deltaX = self.waypoints['x'] - x_car
-        deltaY = self.waypoints['y'] - y_car
+        deltaX = self.waypoints[:,0] - x_car
+        deltaY = self.waypoints[:,1] - y_car
         distances = np.sqrt(deltaX**2 + deltaY**2)
+        min_idx = np.argmin(distances)
+
+        self.waypoints = self.waypoints[min_idx:,:]
+        distances = distances[min_idx:]
 
         # Boolean array for points on and outside of the lookahead
         outside_L = distances >= self.LOOKAHEAD
@@ -65,72 +88,70 @@ class PurePursuit(Node):
         goal_waypoint_index = filtered_index_array[min_index_outside_L]
         
         # with index obtain the goal waypoint
-        goal_waypoint = (self.waypoints['x'][goal_waypoint_index], self.waypoints['y'][goal_waypoint_index])
-        goal_waypoint_tfCar = self.waypointTransform(goal_waypoint, msg)
-        x_waypoint_tf = goal_waypoint_tfCar.pose.position.x
-        y_waypoint_tf = goal_waypoint_tfCar.pose.position.y
-        
-        # get steering angle based on arc formula
-        angle = self.steerToWaypoint(x_car, y_car, x_waypoint_tf, y_waypoint_tf)
+        goal_waypoint = (self.waypoints[:,0][goal_waypoint_index], self.waypoints[:,1][goal_waypoint_index])
+        self.publish_point_marker(goal_waypoint[0], goal_waypoint[1])
 
-        # limiting angle. change this value based on sim performance
-        max_angle = 60
-        if angle >= np.radians(max_angle):
-            angle = np.radians(max_angle)
+        # TODO: transform goal point to vehicle frame of reference
+        transformed_point = self.transform_point(goal_waypoint, pose_msg)
+        
+        # goal_waypoint_tfCar = self.waypointTransform(goal_waypoint, pose_msg)
+        if transformed_point:
+            x_waypoint_tf = transformed_point.position.x
+            y_waypoint_tf = transformed_point.position.y
+
+            # TODO: calculate curvature/steering angle
+            # get steering angle based on arc formula
+            angle = self.steerToWaypoint(0, 0, x_waypoint_tf, y_waypoint_tf)
             
-        print(angle)
-        # show's goal point on Rviz
-        publish_point_marker(x_waypoint_tf,y_waypoint_tf)
-        
-        #shut up and drive https://www.youtube.com/watch?v=up7pvPqNkuU
-        #drive and steer messages
-        angle_msg = AckermannDriveStamped()
-        angle_msg.header.stamp = self.get_clock().now().to_msg()
-        angle_msg.drive.steering_angle = angle
-        self.Ackermann_publisher.publish(angle_msg)
+            # limiting angle. change this value based on sim performance
+            max_angle = 60
+            if angle >= np.radians(max_angle):
+                angle = np.radians(max_angle)
+            print("angle:", angle)
 
-        drive_msg = AckermannDriveStamped()
-        drive_msg.header.stamp = self.get_clock().now().to_msg()
-        drive_msg.drive.speed = self.velocity
-        self.Ackermann_publisher.publish(drive_msg)
-        
-         
-    def waypointTransform(self, goal_waypoint, msg):
+            # TODO: publish drive message, don't forget to limit the steering angle.
+            drive_msg = AckermannDriveStamped()
+            drive_msg.header.stamp = self.get_clock().now().to_msg()
+            drive_msg.drive.speed = self.velocity
+            drive_msg.drive.steering_angle = angle
+            self.publisher_.publish(drive_msg)
+
+
+    def transform_point(self, goal_point, pose_msg):
         #convert our goal_waypoint into a PoseStamped messaeg
-        goalWaypointPose = Pose()
-        goalWaypointPose.position.x  = goal_waypoint[0]
-        goalWaypointPose.position.y = goal_waypoint[1]
-        goalWaypointPose.position.z = 0
-        goalWaypointPose.orientation.x = 0
-        goalWaypointPose.orientation.y = 0
-        goalWaypointPose.orientation.z = 0
+        point_stamped = Pose()
+        point_stamped.position.x  = goal_point[0]
+        point_stamped.position.y = goal_point[1]
+        point_stamped.position.z = 0.0
+        point_stamped.orientation.x = 0.0
+        point_stamped.orientation.y = 0.0
+        point_stamped.orientation.z = 0.0
 
-        goal_waypoint_mapFrame = PoseStamped()
-        goal_waypoint_mapFrame.header = msg.pose.header
-        goal_waypoint_mapFrame.pose   = goalWaypointPose
-
-        #do the transform
-       transform = self.tf_buffer.lookup_transform('ego_racecar/base_link',
+        try:
+            transform = self.tf_buffer.lookup_transform('ego_racecar/base_link',
                                                     'map',
                                                     rclpy.time.Time()
                                                     )
-        goal_waypoint_tfCar = tf2_geometry_msgs.do_transform_pose(goal_waypoint_mapFrame, transform)
-        return goal_waypoint_tfCar
-
+            goal_waypoint_tfCar = tf2_geometry_msgs.do_transform_pose(point_stamped, transform)
+            return goal_waypoint_tfCar
+        except TransformException as ex:
+            self.get_logger().info(
+                f'Could not transform ego_racecar/base_link to map: {ex}')
+            return
 
     def steerToWaypoint(self, x_car, y_car, x_goal, y_goal):
         X = x_goal - x_car
         Y = y_goal - y_car
         dist_euc = math.sqrt(X**2+Y**2)
-        steering_angle = (2*abs(Y))/(dist_euc**2)
+        steering_angle = (2*Y)/(dist_euc**2) * self.constant
         return steering_angle
-        
-    def publish_point_marker(x, y, frame_id='map'):
+
+    def publish_point_marker(self, x, y, frame_id='map'):
 
         # Create a Marker message
         marker_msg = Marker()
         marker_msg.header.frame_id = frame_id  # Set the frame ID (default: base_link)
-        marker_msg.header.stamp = node.get_clock().now().to_msg()
+        marker_msg.header.stamp = self.get_clock().now().to_msg()
         marker_msg.ns = 'points'
         marker_msg.id = 0
         marker_msg.type = Marker.SPHERE
@@ -143,12 +164,11 @@ class PurePursuit(Node):
         marker_msg.scale.z = 0.2
         marker_msg.color.a = 1.0  # Alpha (transparency)
         marker_msg.color.r = 0.0  
-        marker_msg.color.g = 255.0  # Green marker
+        marker_msg.color.g = 255.0  
         marker_msg.color.b = 0.0
 
         # Publish the Marker message
-        publisher.publish(marker_msg)
-        node.get_logger().info('Marker published')
+        self.marker_publisher.publish(marker_msg)
 
 
 def main(args=None):
